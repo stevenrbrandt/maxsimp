@@ -129,10 +129,12 @@ def install_sbcl(prefix, version: str = SBCL_VERSION, url: str = None,
         urllib.request.urlretrieve(url, tarball)
     with tarfile.open(tarball, "r:bz2") as tf:
         tf.extractall(tmp)
-    install_sh = tmp / "install.sh"
-    if not install_sh.exists():
+    # The binary tarball nests everything under sbcl-<ver>-<arch>-linux/.
+    matches = sorted(tmp.rglob("install.sh"))
+    if not matches:
         raise RuntimeError(f"SBCL archive did not unpack as expected in {tmp}")
-    _run(["sh", "install.sh", f"--prefix={prefix}"], tmp)
+    install_dir = matches[0].parent
+    _run(["sh", "install.sh", f"--prefix={prefix}"], install_dir)
     return verify_sbcl(str(prefix / "bin" / "sbcl"))
 
 

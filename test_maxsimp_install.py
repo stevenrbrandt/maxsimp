@@ -109,6 +109,36 @@ def test_maybe_builds_to_default_prefix(monkeypatch, tmp_path):
     assert out.endswith("bin/maxima")
 
 
+def test_install_sbcl_finds_nested_install_sh(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    work = tmp_path / "work"
+    nested = work / "sbcl-2.6.8-x86-64-linux"
+    nested.mkdir(parents=True)
+    monkeypatch.setattr(boot.urllib.request, "urlretrieve",
+                        lambda url, dst: Path(dst).write_bytes(b"fake"))
+
+    class FakeTar:
+        def __enter__(self):
+            (nested / "install.sh").write_text("#!/bin/sh\n")
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def extractall(self, dest):
+            pass
+
+    monkeypatch.setattr(boot.tarfile, "open", lambda *a, **k: FakeTar())
+    cmds = []
+    monkeypatch.setattr(boot.subprocess, "run",
+                        lambda cmd, **k: cmds.append((cmd, k.get("cwd"))) or _SbclVersion())
+    out = boot.install_sbcl(tmp_path / "sbcl", workdir=work)
+    assert cmds[0][0] == ["sh", "install.sh", f"--prefix={tmp_path / 'sbcl'}"]
+    assert cmds[0][1] == str(nested)
+    assert out == str(tmp_path / "sbcl" / "bin" / "sbcl")
+
+
 def test_default_prefix_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("MAXSIMP_PREFIX", str(tmp_path / "custom"))
     assert boot.default_prefix() == tmp_path / "custom"
@@ -180,9 +210,9 @@ def test_install_sbcl_runs_install_sh_with_prefix(monkeypatch, tmp_path):
     monkeypatch.setattr(boot.tarfile, "open", lambda *a, **k: FakeTar())
     cmds = []
     monkeypatch.setattr(boot.subprocess, "run",
-                        lambda cmd, **k: cmds.append(cmd) or _SbclVersion())
+                        lambda cmd, **k: cmds.append((cmd, k.get("cwd"))) or _SbclVersion())
     out = boot.install_sbcl(tmp_path / "sbcl", workdir=work)
-    assert ["sh", "install.sh", f"--prefix={tmp_path / 'sbcl'}"] in cmds
+    assert cmds[0] == (["sh", "install.sh", f"--prefix={tmp_path / 'sbcl'}"], str(work))
     assert out == str(tmp_path / "sbcl" / "bin" / "sbcl")
 
 

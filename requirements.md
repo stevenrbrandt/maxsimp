@@ -44,6 +44,7 @@ Source: concept.md (2026-09-28) + CLAUDE.md workflow + user confirmations.
 - Bug 2026-09-28 (user report: pip install makes no attempt at Maxima): modern pip builds a wheel via PEP 517 and never runs setup.py's `install` cmdclass, so the hook was dead code. Fix: run use-or-install in a `build_py` hook (executes during wheel build, i.e. during `pip install .`), targeting the user data dir (`~/.local/share/maxsimp/maxima-local`, overridable by $MAXSIMP_PREFIX), still skipped by MAXSIMP_SKIP_MAXIMA=1 and fatal on missing tools.
 - Bug 2026-09-28 (user log: `pip install -e .` also silent): PEP 660 editable builds run `editable_wheel`, not `build_py`. Fix: same use-or-install call in an `editable_wheel` cmdclass override.
 - SBCL fallback 2026-09-28 (user: yes): no Lisp on PATH is no longer fatal; `ensure_lisp()` installs official SBCL 2.6.8 binaries to <prefix>/sbcl. 34/34 pytest pass (21 installer tests, mocked).
+- Bug 2026-09-28 (rostam1 log: `install.sh` not found): SBCL binary tarballs nest under `sbcl-<ver>-<arch>-linux/`; fixed lookup to `rglob("install.sh")` and run it from its own directory. 35/35 pass.
 
 ## 6. Install result (2026-09-28)
 - Built Maxima 5.49.0 from source with `--enable-clisp --disable-build-docs`, prefix `./maxima-local`.
