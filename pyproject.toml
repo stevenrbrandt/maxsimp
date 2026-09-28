@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maxsimp"
+version = "0.1.0"
+description = "Simplify SymPy expressions via Maxima (MaxSymp)"
+readme = "concept.md"
+requires-python = ">=3.9"
+dependencies = ["sympy>=1.12"]
+
+[project.scripts]
+maxsimp-install-maxima = "maxsimp_bootstrap:main"
+
+[tool.setuptools]
+py-modules = ["maxsymp", "maxsimp_bootstrap"]

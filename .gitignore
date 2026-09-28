@@ -1,0 +1,18 @@
+# Locally built Maxima (GBs; reproducible via maxsimp-install-maxima)
+maxima-local/
+
+# Python caches and test artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+
+# Build / packaging outputs
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtualenvs
+.venv/
+venv/

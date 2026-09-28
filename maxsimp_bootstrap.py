@@ -1,0 +1,171 @@
+"""Bootstrap helper: use or install a Maxima binary for MaxSimp.
+
+Resolution order for an existing binary (see find_maxima_bin):
+  1. $MAXSIMP_MAXIMA_BIN (explicit path)
+  2. package-local maxima-local/bin/maxima (dev checkout or pip install target)
+  3. ~/.local/share/maxsimp/maxima-local/bin/maxima (console-script default)
+  4. `maxima` on PATH
+
+If none is usable, build_maxima() downloads the Maxima source tarball and
+builds it with --prefix=<prefix> (needs a Lisp, a C compiler and make).
+Any missing prerequisite or failed step raises (never silently ignored).
+
+Installed as the `maxsimp-install-maxima` console script.
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.request
+from pathlib import Path
+
+MAXIMA_VERSION = os.environ.get("MAXSIMP_MAXIMA_VERSION", "5.49.0")
+MAXIMA_URL = os.environ.get(
+    "MAXSIMP_MAXIMA_URL",
+    f"https://sourceforge.net/projects/maxima/files/Maxima-source/"
+    f"{MAXIMA_VERSION}-source/maxima-{MAXIMA_VERSION}.tar.gz/download",
+)
+
+_USER_PREFIX = Path.home() / ".local" / "share" / "maxsimp" / "maxima-local"
+
+
+def _which(name: str):
+    return shutil.which(name)
+
+
+def check_prerequisites() -> dict:
+    """Verify build tools exist; return them or raise RuntimeError listing gaps."""
+    lisp = None
+    for cand in ("sbcl", "clisp"):
+        if _which(cand):
+            lisp = cand
+            break
+    cc = _which("gcc") or _which("cc")
+    make = _which("make")
+    missing = []
+    if lisp is None:
+        missing.append("a Lisp (install sbcl or clisp, e.g. sudo apt install sbcl)")
+    if cc is None:
+        missing.append("a C compiler (install gcc, e.g. sudo apt install gcc)")
+    if make is None:
+        missing.append("make (e.g. sudo apt install make)")
+    if missing:
+        raise RuntimeError(
+            "Cannot build Maxima from source; missing prerequisites:\n"
+            + "\n".join(f"  - {m}" for m in missing)
+        )
+    return {"lisp": lisp, "cc": cc, "make": make}
+
+
+def _configure_args(lisp: str) -> list:
+    if lisp == "clisp":
+        return ["--enable-clisp", "--disable-build-docs"]
+    if lisp == "sbcl":
+        return ["--disable-build-docs"]
+    raise ValueError(f"Unsupported Lisp for Maxima build: {lisp!r}")
+
+
+def _run(cmd, cwd) -> None:
+    subprocess.run(cmd, cwd=str(cwd), check=True)
+
+
+def build_maxima(prefix, version: str = MAXIMA_VERSION, url: str = MAXIMA_URL,
+                 workdir=None) -> str:
+    """Download Maxima `version` source and install to `prefix`; return maxima bin path."""
+    tools = check_prerequisites()
+    prefix = Path(prefix)
+    tmp = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="maxsimp-maxima-"))
+    tmp.mkdir(parents=True, exist_ok=True)
+    tarball = tmp / f"maxima-{version}.tar.gz"
+    if not tarball.exists():
+        urllib.request.urlretrieve(url, tarball)
+    with tarfile.open(tarball, "r:gz") as tf:
+        tf.extractall(tmp)
+    src = tmp / f"maxima-{version}"
+    if not (src / "configure").exists():
+        raise RuntimeError(f"Maxima source did not unpack as expected in {src}")
+    _run(["./configure", f"--prefix={prefix}", *_configure_args(tools["lisp"])], src)
+    _run([tools["make"], "-j4"], src)
+    _run([tools["make"], "install"], src)
+    return verify_maxima(str(prefix / "bin" / "maxima"))
+
+
+def verify_maxima(binpath: str, timeout: int = 120) -> str:
+    """Smoke-test `binpath`; return it or raise if it cannot simplify."""
+    script = "display2d:false$\nratsimp(((x**2-1)/(x-1)));\nquit();\n"
+    proc = subprocess.run(
+        [binpath, "--very-quiet"], input=script, capture_output=True,
+        text=True, timeout=timeout, check=True,
+    )
+    if "x+1" not in proc.stdout.replace(" ", ""):
+        raise RuntimeError(
+            f"Maxima smoke test failed for {binpath!r}:\nstdout={proc.stdout!r}\n"
+            f"stderr={proc.stderr!r}"
+        )
+    return binpath
+
+
+def package_local_bin() -> Path:
+    return Path(__file__).resolve().parent / "maxima-local" / "bin" / "maxima"
+
+
+def user_data_bin() -> Path:
+    return _USER_PREFIX / "bin" / "maxima"
+
+
+def find_maxima_bin():
+    """Return the first usable Maxima binary path, or None if there is none."""
+    env = os.environ.get("MAXSIMP_MAXIMA_BIN")
+    if env and Path(env).exists():
+        return str(Path(env))
+    for cand in (package_local_bin(), user_data_bin()):
+        if cand.exists():
+            return str(cand)
+    found = _which("maxima")
+    if found:
+        return found
+    return None
+
+
+def ensure_maxima_bin() -> str:
+    """Return a usable Maxima path or raise FileNotFoundError with instructions."""
+    found = find_maxima_bin()
+    if found:
+        return found
+    raise FileNotFoundError(
+        "No usable Maxima found. Either install it (sudo apt install maxima), "
+        "point $MAXSIMP_MAXIMA_BIN at a maxima binary, or build from source with:\n"
+        "  maxsimp-install-maxima"
+    )
+
+
+def main(argv=None) -> int:
+    """Entry point for `maxsimp-install-maxima`; exits non-zero on any failure."""
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Use or install Maxima for MaxSimp.")
+    ap.add_argument("--prefix", default=str(_USER_PREFIX),
+                    help="install prefix (default: %(default)s)")
+    ap.add_argument("--version", default=MAXIMA_VERSION)
+    ap.add_argument("--url", default=MAXIMA_URL)
+    ap.add_argument("--workdir", default=None)
+    ap.add_argument("--force", action="store_true",
+                    help="rebuild even if a usable Maxima already exists")
+    args = ap.parse_args(argv)
+    existing = find_maxima_bin()
+    if existing and not args.force:
+        print(f"Using existing Maxima: {existing}")
+        return 0
+    tools = check_prerequisites()
+    print(f"Building Maxima {args.version} with {tools['lisp']} -> {args.prefix}")
+    built = build_maxima(args.prefix, version=args.version, url=args.url,
+                         workdir=args.workdir)
+    print(f"Maxima ready: {built}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
