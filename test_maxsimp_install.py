@@ -173,11 +173,46 @@ def test_ensure_lisp_bootstraps_sbcl_when_none(monkeypatch, tmp_path):
 def test_sbcl_url_pattern_and_override(monkeypatch):
     monkeypatch.delenv("MAXSIMP_SBCL_URL", raising=False)
     monkeypatch.setattr(boot.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(boot.platform, "libc_ver", lambda: ("glibc", "2.43"))
     url = boot.sbcl_url("2.6.8")
     assert url == ("https://sourceforge.net/projects/sbcl/files/sbcl/2.6.8/"
                    "sbcl-2.6.8-x86-64-linux-binary.tar.bz2/download")
     monkeypatch.setenv("MAXSIMP_SBCL_URL", "https://example.com/sbcl.tar.bz2")
     assert boot.sbcl_url("2.6.8") == "https://example.com/sbcl.tar.bz2"
+
+
+def test_sbcl_url_old_glibc_picks_matched_build(monkeypatch):
+    monkeypatch.delenv("MAXSIMP_SBCL_URL", raising=False)
+    monkeypatch.setattr(boot.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(boot.platform, "libc_ver", lambda: ("glibc", "2.34"))
+    assert boot.sbcl_url() == ("https://github.com/roswell/sbcl_bin/releases/download/2.6.6/"
+                               "sbcl-2.6.6-x86-64-linux-glibc2.31-binary.tar.bz2")
+    monkeypatch.setattr(boot.platform, "libc_ver", lambda: ("glibc", "2.28"))
+    assert "glibc2.23" in boot.sbcl_url()
+
+
+def test_sbcl_url_ancient_glibc_or_musl_is_fatal(monkeypatch):
+    monkeypatch.delenv("MAXSIMP_SBCL_URL", raising=False)
+    monkeypatch.setattr(boot.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(boot.platform, "libc_ver", lambda: ("glibc", "2.17"))
+    with pytest.raises(RuntimeError, match="too old"):
+        boot.sbcl_url()
+    monkeypatch.setattr(boot.platform, "libc_ver", lambda: ("musl", "1.2"))
+    with pytest.raises(RuntimeError, match="Non-glibc"):
+        boot.sbcl_url()
+
+
+def test_verify_sbcl_reports_diagnostics(monkeypatch):
+    class Dead:
+        returncode = 1
+        stdout = ""
+        stderr = "./sbcl: /lib64/libc.so.6: version `GLIBC_2.39' not found"
+
+    monkeypatch.setattr(boot.subprocess, "run", lambda *a, **k: Dead())
+    with pytest.raises(RuntimeError) as ei:
+        boot.verify_sbcl("/fake/sbcl")
+    msg = str(ei.value)
+    assert "returncode=1" in msg and "GLIBC_2.39" in msg and "ldd" in msg
 
 
 def test_sbcl_url_unknown_arch_is_fatal(monkeypatch):
@@ -217,6 +252,7 @@ def test_install_sbcl_runs_install_sh_with_prefix(monkeypatch, tmp_path):
 
 
 class _SbclVersion:
+    returncode = 0
     stdout = "SBCL 2.6.8"
     stderr = ""
 

@@ -15,6 +15,7 @@
 - Note 2026-09-28: user log shows `pip install -e .` also silent (PEP 660 runs `editable_wheel`, not `build_py`); added EditableWheelWithMaxima hook. Uncommitted pending user go-ahead.
 - Note 2026-09-28: SBCL fallback implemented (ensure_lisp/install_sbcl/verify_sbcl, --with-sbcl wiring); suite 34/34 pass. Uncommitted.
 - Note 2026-09-28: rostam1 `pip install -e .` reached SBCL install but failed on nested `install.sh` path; fixed with rglob lookup. Suite 35/35. Uncommitted.
+- Note 2026-09-28: rostam1 SBCL 2.6.8 binary exits 1 (glibc 2.34 host); added glibc-matched SBCL ladder + diagnostic verify errors. Suite 38/38. Uncommitted.
 - Env: Python 3.13.14, SymPy 1.12.1, Maxima 5.49.0 at `./maxima-local/bin/maxima`.
 
 ## Key blocker (resolved 2026-09-28)

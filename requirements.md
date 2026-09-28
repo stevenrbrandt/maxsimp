@@ -45,6 +45,7 @@ Source: concept.md (2026-09-28) + CLAUDE.md workflow + user confirmations.
 - Bug 2026-09-28 (user log: `pip install -e .` also silent): PEP 660 editable builds run `editable_wheel`, not `build_py`. Fix: same use-or-install call in an `editable_wheel` cmdclass override.
 - SBCL fallback 2026-09-28 (user: yes): no Lisp on PATH is no longer fatal; `ensure_lisp()` installs official SBCL 2.6.8 binaries to <prefix>/sbcl. 34/34 pytest pass (21 installer tests, mocked).
 - Bug 2026-09-28 (rostam1 log: `install.sh` not found): SBCL binary tarballs nest under `sbcl-<ver>-<arch>-linux/`; fixed lookup to `rglob("install.sh")` and run it from its own directory. 35/35 pass.
+- Bug 2026-09-28 (rostam1: installed SBCL 2.6.8 exits 1, glibc 2.34 host): official binaries need recent glibc. Fix: `sbcl_url()` picks glibc-matched roswell builds on x86_64 (official 2.6.8 if glibc>=2.39, else 2.6.6 glibc2.31/2.23 variants; fatal otherwise/musl/unknown arch). `verify_sbcl()` now reports returncode+stdout+stderr with likely causes. 38/38 pass.
 
 ## 6. Install result (2026-09-28)
 - Built Maxima 5.49.0 from source with `--enable-clisp --disable-build-docs`, prefix `./maxima-local`.

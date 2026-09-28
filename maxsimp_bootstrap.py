@@ -33,11 +33,28 @@ MAXIMA_URL = os.environ.get(
 )
 
 SBCL_VERSION = os.environ.get("MAXSIMP_SBCL_VERSION", "2.6.8")
+# Older-glibc fallback builds (unofficial roswell mirror, pinned; SBCL version
+# only matters as a Maxima build host).
+_SBCL_FALLBACK_VERSION = "2.6.6"
 _SBCL_ARCH_TOKENS = {"x86_64": "x86-64", "aarch64": "arm64", "arm64": "arm64"}
 
 
+def _glibc_version() -> tuple:
+    lib, ver = platform.libc_ver()
+    parts = (ver or "").split(".")
+    try:
+        return (lib, (int(parts[0]), int(parts[1])))
+    except (IndexError, ValueError):
+        return (lib, None)
+
+
 def sbcl_url(version: str = SBCL_VERSION, arch_token: str = None) -> str:
-    """Download URL for the official SBCL Linux binary tarball."""
+    """Download URL for an SBCL Linux binary tarball compatible with this host.
+
+    $MAXSIMP_SBCL_URL overrides everything. Otherwise x86_64 hosts get the
+    official build on new glibc (>= 2.39) or a roswell glibc-matched build
+    (2.31/2.23 variants) on older ones; other arches get the official build.
+    """
     env = os.environ.get("MAXSIMP_SBCL_URL")
     if env:
         return env
@@ -49,6 +66,28 @@ def sbcl_url(version: str = SBCL_VERSION, arch_token: str = None) -> str:
                 "install sbcl or clisp manually (e.g. sudo apt install sbcl)."
             )
         arch_token = _SBCL_ARCH_TOKENS[machine]
+    if arch_token == "x86-64":
+        lib, ver = _glibc_version()
+        if lib == "glibc" and ver is not None:
+            if ver >= (2, 39):
+                pass  # official build below
+            else:
+                variant = "glibc2.31" if ver >= (2, 31) else "glibc2.23" if ver >= (2, 23) else None
+                if variant is None:
+                    raise RuntimeError(
+                        f"glibc {ver[0]}.{ver[1]} too old for prebuilt SBCL; "
+                        "install sbcl or clisp manually (e.g. sudo apt install sbcl)."
+                    )
+                fv = _SBCL_FALLBACK_VERSION
+                return (
+                    f"https://github.com/roswell/sbcl_bin/releases/download/{fv}/"
+                    f"sbcl-{fv}-{arch_token}-linux-{variant}-binary.tar.bz2"
+                )
+        elif lib != "glibc":
+            raise RuntimeError(
+                f"Non-glibc system ({lib}); set $MAXSIMP_SBCL_URL to a musl SBCL "
+                "binary or install sbcl/clisp manually."
+            )
     return (
         f"https://sourceforge.net/projects/sbcl/files/sbcl/{version}/"
         f"sbcl-{version}-{arch_token}-linux-binary.tar.bz2/download"
@@ -139,15 +178,17 @@ def install_sbcl(prefix, version: str = SBCL_VERSION, url: str = None,
 
 
 def verify_sbcl(binpath: str, timeout: int = 60) -> str:
-    """Check `binpath` runs; return it or raise."""
+    """Check `binpath` runs; return it or raise with full diagnostics."""
     proc = subprocess.run(
-        [binpath, "--version"], capture_output=True, text=True,
-        timeout=timeout, check=True,
+        [binpath, "--version"], capture_output=True, text=True, timeout=timeout,
     )
-    if "SBCL" not in proc.stdout:
+    if proc.returncode != 0 or "SBCL" not in proc.stdout:
         raise RuntimeError(
-            f"SBCL smoke test failed for {binpath!r}:\nstdout={proc.stdout!r}\n"
-            f"stderr={proc.stderr!r}"
+            f"SBCL smoke test failed for {binpath!r}:\n"
+            f"returncode={proc.returncode}\nstdout={proc.stdout!r}\n"
+            f"stderr={proc.stderr!r}\n"
+            "Likely causes: binary/glibc mismatch (try $MAXSIMP_SBCL_URL with an "
+            "older-glibc build) or missing shared libraries (check `ldd <bin>`)."
         )
     return binpath
 
