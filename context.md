@@ -11,6 +11,7 @@
 - Note 2026-09-28: added ComplexityFunction emulation (default aggressive chain; hook searches 5 transformers); 4 new tests cover factored-vs-expanded choice and cos-penalizing custom cost.
 - Note 2026-09-28: pip installer added (pyproject.toml, setup.py use-or-install, maxsimp_bootstrap.py, 10 installer tests). Full suite 23/23 pass. Real `pip install .` validation pending (no setuptools in env; install needs user approval).
 - Note 2026-09-28: initial git commit created (maxima-local/ excluded via .gitignore).
+- Note 2026-09-28: fixed pip-install Maxima bootstrap — setup.py `install` hook never runs under PEP 517 wheels, so use-or-install moved to a `build_py` hook via `boot.maybe_use_or_install()` (default prefix ~/.local/share, $MAXSIMP_PREFIX override, $MAXSIMP_SKIP_MAXIMA=1 opt-out). Suite 27/27 pass. Not committed; user re-validates `pip install .`.
 - Env: Python 3.13.14, SymPy 1.12.1, Maxima 5.49.0 at `./maxima-local/bin/maxima`.
 
 ## Key blocker (resolved 2026-09-28)

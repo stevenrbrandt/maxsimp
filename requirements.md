@@ -41,6 +41,7 @@ Source: concept.md (2026-09-28) + CLAUDE.md workflow + user confirmations.
 - Files: `pyproject.toml` (setuptools backend, project `maxsimp` 0.1.0, script `maxsimp-install-maxima`), `setup.py` (custom install: reuse existing Maxima or build into <install_lib>/maxima-local unless MAXSIMP_SKIP_MAXIMA=1), `maxsimp_bootstrap.py` (checks, download, build, discovery, CLI), `test_maxsimp_install.py` (10 mocked tests).
 - Runtime `maxsymp._maxima_bin` now delegates to bootstrap discovery; missing binary raises with install instructions.
 - Not yet validated: real `pip install .` (env lacks setuptools; needs user approval to install it). 23/23 pytest pass.
+- Bug 2026-09-28 (user report: pip install makes no attempt at Maxima): modern pip builds a wheel via PEP 517 and never runs setup.py's `install` cmdclass, so the hook was dead code. Fix: run use-or-install in a `build_py` hook (executes during wheel build, i.e. during `pip install .`), targeting the user data dir (`~/.local/share/maxsimp/maxima-local`, overridable by $MAXSIMP_PREFIX), still skipped by MAXSIMP_SKIP_MAXIMA=1 and fatal on missing tools.
 
 ## 6. Install result (2026-09-28)
 - Built Maxima 5.49.0 from source with `--enable-clisp --disable-build-docs`, prefix `./maxima-local`.

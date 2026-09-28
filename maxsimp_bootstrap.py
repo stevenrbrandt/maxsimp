@@ -32,6 +32,33 @@ MAXIMA_URL = os.environ.get(
 _USER_PREFIX = Path.home() / ".local" / "share" / "maxsimp" / "maxima-local"
 
 
+def default_prefix() -> Path:
+    """Install prefix for Maxima builds; overridable by $MAXSIMP_PREFIX."""
+    env = os.environ.get("MAXSIMP_PREFIX")
+    return Path(env) if env else _USER_PREFIX
+
+
+def maybe_use_or_install(prefix=None):
+    """Use an existing Maxima or build from source; return bin path or None if skipped.
+
+    Returns None without doing anything when $MAXSIMP_SKIP_MAXIMA=1.
+    Otherwise reuses find_maxima_bin() when present, else build_maxima(prefix).
+    Any failure raises (never silently ignored).
+    """
+    if os.environ.get("MAXSIMP_SKIP_MAXIMA") == "1":
+        print("MAXSIMP_SKIP_MAXIMA=1: skipping Maxima bootstrap.")
+        return None
+    existing = find_maxima_bin()
+    if existing:
+        print(f"maxsimp: using existing Maxima: {existing}")
+        return existing
+    target = Path(prefix) if prefix else default_prefix()
+    print(f"maxsimp: no Maxima found; building from source -> {target}")
+    built = build_maxima(target)
+    print(f"maxsimp: Maxima ready: {built}")
+    return built
+
+
 def _which(name: str):
     return shutil.which(name)
 
