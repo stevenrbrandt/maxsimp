@@ -43,6 +43,7 @@ Source: concept.md (2026-09-28) + CLAUDE.md workflow + user confirmations.
 - Not yet validated: real `pip install .` (env lacks setuptools; needs user approval to install it). 23/23 pytest pass.
 - Bug 2026-09-28 (user report: pip install makes no attempt at Maxima): modern pip builds a wheel via PEP 517 and never runs setup.py's `install` cmdclass, so the hook was dead code. Fix: run use-or-install in a `build_py` hook (executes during wheel build, i.e. during `pip install .`), targeting the user data dir (`~/.local/share/maxsimp/maxima-local`, overridable by $MAXSIMP_PREFIX), still skipped by MAXSIMP_SKIP_MAXIMA=1 and fatal on missing tools.
 - Bug 2026-09-28 (user log: `pip install -e .` also silent): PEP 660 editable builds run `editable_wheel`, not `build_py`. Fix: same use-or-install call in an `editable_wheel` cmdclass override.
+- SBCL fallback 2026-09-28 (user: yes): no Lisp on PATH is no longer fatal; `ensure_lisp()` installs official SBCL 2.6.8 binaries to <prefix>/sbcl. 34/34 pytest pass (21 installer tests, mocked).
 
 ## 6. Install result (2026-09-28)
 - Built Maxima 5.49.0 from source with `--enable-clisp --disable-build-docs`, prefix `./maxima-local`.
@@ -52,7 +53,7 @@ Source: concept.md (2026-09-28) + CLAUDE.md workflow + user confirmations.
 ## 7. Pip installer (2026-09-28, user request)
 - Provide a pip installer for MaxSymp that can use or install Maxima from source.
 - Behavior: prefer usable Maxima in order MAXSIMP_MAXIMA_BIN env -> package-local maxima-local -> system PATH; else build from source tarball.
-- Must check prerequisites first and fail with a clear error if missing: a Lisp (sbcl preferred, else clisp), a C compiler (gcc/cc), make. Download uses stdlib urllib; extraction uses stdlib tarfile.
+- Must check prerequisites first and fail with a clear error if missing: a C compiler (gcc/cc) and make are fatal. Lisp is soft: prefer sbcl/clisp on PATH, else auto-install official SBCL binaries (pinned 2.6.8, URL verified 2026-09-28; x86_64/arm64) into <prefix>/sbcl, then configure Maxima with --with-sbcl=<path>. Download uses stdlib urllib; extraction uses stdlib tarfile.
 - Must not silently ignore failures: any missing tool or failed step is a fatal error with message.
 - Provide skip/opt-out for offline installs (env MAXSIMP_SKIP_MAXIMA=1 installs Python only).
 - Ship tests for prereq checker and discovery logic (mocked, no real build).

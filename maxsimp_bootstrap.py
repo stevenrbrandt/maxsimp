@@ -7,13 +7,16 @@ Resolution order for an existing binary (see find_maxima_bin):
   4. `maxima` on PATH
 
 If none is usable, build_maxima() downloads the Maxima source tarball and
-builds it with --prefix=<prefix> (needs a Lisp, a C compiler and make).
+builds it with --prefix=<prefix>. It needs a C compiler and make (fatal if
+missing); for Lisp it prefers sbcl/clisp on PATH and otherwise downloads an
+official SBCL binary tarball into <prefix>/sbcl automatically.
 Any missing prerequisite or failed step raises (never silently ignored).
 
 Installed as the `maxsimp-install-maxima` console script.
 """
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -28,6 +31,28 @@ MAXIMA_URL = os.environ.get(
     f"https://sourceforge.net/projects/maxima/files/Maxima-source/"
     f"{MAXIMA_VERSION}-source/maxima-{MAXIMA_VERSION}.tar.gz/download",
 )
+
+SBCL_VERSION = os.environ.get("MAXSIMP_SBCL_VERSION", "2.6.8")
+_SBCL_ARCH_TOKENS = {"x86_64": "x86-64", "aarch64": "arm64", "arm64": "arm64"}
+
+
+def sbcl_url(version: str = SBCL_VERSION, arch_token: str = None) -> str:
+    """Download URL for the official SBCL Linux binary tarball."""
+    env = os.environ.get("MAXSIMP_SBCL_URL")
+    if env:
+        return env
+    if arch_token is None:
+        machine = platform.machine()
+        if machine not in _SBCL_ARCH_TOKENS:
+            raise RuntimeError(
+                f"No prebuilt SBCL for architecture {machine!r}; "
+                "install sbcl or clisp manually (e.g. sudo apt install sbcl)."
+            )
+        arch_token = _SBCL_ARCH_TOKENS[machine]
+    return (
+        f"https://sourceforge.net/projects/sbcl/files/sbcl/{version}/"
+        f"sbcl-{version}-{arch_token}-linux-binary.tar.bz2/download"
+    )
 
 _USER_PREFIX = Path.home() / ".local" / "share" / "maxsimp" / "maxima-local"
 
@@ -64,7 +89,11 @@ def _which(name: str):
 
 
 def check_prerequisites() -> dict:
-    """Verify build tools exist; return them or raise RuntimeError listing gaps."""
+    """Verify hard build tools exist; return them or raise RuntimeError.
+
+    Lisp is NOT required here: ensure_lisp() bootstraps SBCL when neither
+    sbcl nor clisp is on PATH. Only a C compiler and make are fatal.
+    """
     lisp = None
     for cand in ("sbcl", "clisp"):
         if _which(cand):
@@ -73,8 +102,6 @@ def check_prerequisites() -> dict:
     cc = _which("gcc") or _which("cc")
     make = _which("make")
     missing = []
-    if lisp is None:
-        missing.append("a Lisp (install sbcl or clisp, e.g. sudo apt install sbcl)")
     if cc is None:
         missing.append("a C compiler (install gcc, e.g. sudo apt install gcc)")
     if make is None:
@@ -87,10 +114,62 @@ def check_prerequisites() -> dict:
     return {"lisp": lisp, "cc": cc, "make": make}
 
 
-def _configure_args(lisp: str) -> list:
+def install_sbcl(prefix, version: str = SBCL_VERSION, url: str = None,
+                 workdir=None) -> str:
+    """Download the official SBCL binary tarball and install to `prefix`.
+
+    Returns the installed `sbcl` binary path. Raises on any failure.
+    """
+    prefix = Path(prefix)
+    url = url or sbcl_url(version)
+    tmp = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="maxsimp-sbcl-"))
+    tmp.mkdir(parents=True, exist_ok=True)
+    tarball = tmp / f"sbcl-{version}-linux-binary.tar.bz2"
+    if not tarball.exists():
+        urllib.request.urlretrieve(url, tarball)
+    with tarfile.open(tarball, "r:bz2") as tf:
+        tf.extractall(tmp)
+    install_sh = tmp / "install.sh"
+    if not install_sh.exists():
+        raise RuntimeError(f"SBCL archive did not unpack as expected in {tmp}")
+    _run(["sh", "install.sh", f"--prefix={prefix}"], tmp)
+    return verify_sbcl(str(prefix / "bin" / "sbcl"))
+
+
+def verify_sbcl(binpath: str, timeout: int = 60) -> str:
+    """Check `binpath` runs; return it or raise."""
+    proc = subprocess.run(
+        [binpath, "--version"], capture_output=True, text=True,
+        timeout=timeout, check=True,
+    )
+    if "SBCL" not in proc.stdout:
+        raise RuntimeError(
+            f"SBCL smoke test failed for {binpath!r}:\nstdout={proc.stdout!r}\n"
+            f"stderr={proc.stderr!r}"
+        )
+    return binpath
+
+
+def ensure_lisp(sbcl_home) -> tuple:
+    """Return (name, bin_path_or_None) for a usable Lisp.
+
+    Prefers sbcl then clisp on PATH; otherwise installs SBCL binaries to
+    `sbcl_home`. `bin_path_or_None` is None when using a PATH Lisp.
+    """
+    if _which("sbcl"):
+        return ("sbcl", None)
+    if _which("clisp"):
+        return ("clisp", None)
+    print(f"maxsimp: no Lisp on PATH; installing SBCL {SBCL_VERSION} -> {sbcl_home}")
+    return ("sbcl", install_sbcl(sbcl_home))
+
+
+def _configure_args(lisp: str, sbcl_bin=None) -> list:
     if lisp == "clisp":
         return ["--enable-clisp", "--disable-build-docs"]
     if lisp == "sbcl":
+        if sbcl_bin:
+            return [f"--with-sbcl={sbcl_bin}", "--disable-build-docs"]
         return ["--disable-build-docs"]
     raise ValueError(f"Unsupported Lisp for Maxima build: {lisp!r}")
 
@@ -104,6 +183,7 @@ def build_maxima(prefix, version: str = MAXIMA_VERSION, url: str = MAXIMA_URL,
     """Download Maxima `version` source and install to `prefix`; return maxima bin path."""
     tools = check_prerequisites()
     prefix = Path(prefix)
+    lisp_name, lisp_bin = ensure_lisp(prefix / "sbcl")
     tmp = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="maxsimp-maxima-"))
     tmp.mkdir(parents=True, exist_ok=True)
     tarball = tmp / f"maxima-{version}.tar.gz"
@@ -114,7 +194,8 @@ def build_maxima(prefix, version: str = MAXIMA_VERSION, url: str = MAXIMA_URL,
     src = tmp / f"maxima-{version}"
     if not (src / "configure").exists():
         raise RuntimeError(f"Maxima source did not unpack as expected in {src}")
-    _run(["./configure", f"--prefix={prefix}", *_configure_args(tools["lisp"])], src)
+    _run(["./configure", f"--prefix={prefix}",
+          *_configure_args(lisp_name, lisp_bin)], src)
     _run([tools["make"], "-j4"], src)
     _run([tools["make"], "install"], src)
     return verify_maxima(str(prefix / "bin" / "maxima"))
@@ -187,7 +268,8 @@ def main(argv=None) -> int:
         print(f"Using existing Maxima: {existing}")
         return 0
     tools = check_prerequisites()
-    print(f"Building Maxima {args.version} with {tools['lisp']} -> {args.prefix}")
+    lisp_desc = tools["lisp"] or f"bootstrapped SBCL {SBCL_VERSION}"
+    print(f"Building Maxima {args.version} with {lisp_desc} -> {args.prefix}")
     built = build_maxima(args.prefix, version=args.version, url=args.url,
                          workdir=args.workdir)
     print(f"Maxima ready: {built}")
